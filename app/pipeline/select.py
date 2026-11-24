@@ -20,6 +20,13 @@ SYSTEM = """당신은 유튜브 쇼츠 편집자입니다.
 
 피해야 하는 것: 인트로, 구독 요청, 협찬 멘트, 맥락 없는 나열, 말이 잘린 구간.
 
+점수는 다섯 항목으로 나눠서 매깁니다 (각 0~100).
+- hook: 첫 2초가 스크롤을 멈추게 하는가
+- story: 시작과 끝이 있는 완결된 이야기인가
+- value: 웃기거나, 배울 게 있거나, 놀라운가
+- engagement: 댓글·공유를 부를 만한가
+- reach: 이 주제에 관심 가질 사람이 많은가
+
 출력은 JSON만. 설명이나 코드펜스 없이."""
 
 USER_TEMPLATE = """영상 제목: {title}
@@ -33,7 +40,7 @@ USER_TEMPLATE = """영상 제목: {title}
 
 {candidates}
 
-규칙:
+{prompt_block}규칙:
 - 위 후보들 중에서만 고릅니다. 최대 {want}개.
 - start/end는 후보 범위 안에서 조정할 수 있습니다. 말이 잘리지 않게 다듬으세요.
 - 쇼츠가 될 만한 구간이 {want}개보다 적으면 적게 고르세요. 억지로 채우지 마세요.
@@ -46,9 +53,15 @@ JSON 스키마:
     "hook": "첫 화면 문구",
     "caption": "업로드용 설명 한 줄",
     "hashtags": ["태그1", "태그2", "태그3"],
+    "scores": {{"hook": 92, "story": 85, "value": 90, "engagement": 80, "reach": 75}},
     "score": 87,
     "reason": "이 구간을 고른 이유 한 줄"}}
 ]}}"""
+
+PROMPT_BLOCK = """사용자가 원하는 구간: {prompt}
+이 요청에 맞는 구간을 우선합니다. 맞는 구간이 없으면 솔직히 적게 고르세요.
+
+"""
 
 
 @dataclass
@@ -60,6 +73,8 @@ class Clip:
     caption: str = ""
     hashtags: list[str] = field(default_factory=list)
     score: float = 0.0
+    # hook / story / value / engagement / reach 세부 점수
+    scores: dict[str, float] = field(default_factory=dict)
     reason: str = ""
     source: str = "signal"  # signal | llm
     signals: dict[str, float] = field(default_factory=dict)
@@ -78,6 +93,7 @@ class Clip:
             "caption": self.caption,
             "hashtags": self.hashtags,
             "score": round(self.score, 1),
+            "scores": self.scores,
             "reason": self.reason,
             "source": self.source,
             "signals": self.signals,
@@ -124,6 +140,7 @@ def llm_select(
     want: int,
     min_len: int,
     max_len: int,
+    prompt: str = "",
 ) -> list[Clip]:
     """Claude로 최종 선별. 실패하면 예외를 올려 호출부가 신호 기반으로 떨어지게 한다."""
     from anthropic import Anthropic
@@ -137,6 +154,7 @@ def llm_select(
         min_len=min_len,
         max_len=max_len,
         candidates=_render_candidates(candidates),
+        prompt_block=PROMPT_BLOCK.format(prompt=prompt.strip()) if prompt.strip() else "",
     )
     resp = client.messages.create(
         model=config.HIGHLIGHT_MODEL,
@@ -169,6 +187,11 @@ def llm_select(
                 caption=str(item.get("caption") or "")[:200],
                 hashtags=[str(h).lstrip("#")[:30] for h in (item.get("hashtags") or [])][:6],
                 score=float(item.get("score") or 0),
+                scores={
+                    k: float(v)
+                    for k, v in (item.get("scores") or {}).items()
+                    if isinstance(v, (int, float))
+                },
                 reason=str(item.get("reason") or "")[:300],
                 source="llm",
                 signals=signals,

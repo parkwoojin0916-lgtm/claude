@@ -22,14 +22,23 @@ class DownloadError(RuntimeError):
 
 
 def normalize_url(url: str) -> str:
+    """URL 정규화. 유튜브 외에 yt-dlp가 지원하는 사이트도 받는다.
+
+    트위치 VOD, Vimeo, 팟캐스트 호스팅 등 yt-dlp가 다루는 사이트는 그대로
+    동작한다. 지원하지 않는 사이트는 다운로드 단계에서 분명한 오류가 난다.
+    """
     url = (url or "").strip()
     if not url:
         raise DownloadError("URL이 비어 있습니다.")
-    if not YOUTUBE_RE.match(url):
-        raise DownloadError("유튜브 영상 URL만 지원합니다.")
-    if not url.startswith("http"):
+    if not url.startswith(("http://", "https://")):
         url = "https://" + url
+    if not re.match(r"^https?://[^\s/]+\.[^\s/]+", url):
+        raise DownloadError("올바른 영상 URL이 아닙니다.")
     return url
+
+
+def is_youtube(url: str) -> bool:
+    return bool(YOUTUBE_RE.match(url))
 
 
 @dataclass
@@ -200,6 +209,8 @@ def _friendly_error(stderr: str) -> str:
             "브라우저에서 내보낸 cookies.txt를 YTDLP_COOKIES_FILE 환경변수로 지정하거나, "
             "로컬에서 YTDLP_COOKIES_FROM_BROWSER=chrome 으로 실행하세요."
         )
+    if "unsupported url" in low or "no suitable extractor" in low:
+        return "이 사이트는 지원하지 않습니다. 유튜브 등 yt-dlp가 지원하는 주소를 넣어주세요."
     tail = text.splitlines()[-1] if text else "알 수 없는 오류"
     return f"다운로드 실패: {tail[:300]}"
 

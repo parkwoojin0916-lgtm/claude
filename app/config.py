@@ -51,7 +51,7 @@ ASPECT_RATIOS: dict[str, tuple[int, int] | None] = {
     "original": None,
 }
 
-CROP_MODES = ("crop", "blur")
+CROP_MODES = ("auto", "crop", "blur")
 
 
 def ytdlp_auth_args() -> list[str]:

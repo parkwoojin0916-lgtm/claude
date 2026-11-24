@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import subprocess
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .. import config
+from . import reframe
 from .transcribe import Segment, slice_segments
 
 SUB_FONT = "NanumSquare"
@@ -13,6 +15,13 @@ HOOK_FONT = "NanumSquareRound"
 
 class RenderError(RuntimeError):
     pass
+
+
+@dataclass
+class RenderResult:
+    path: Path
+    # 자동 리프레임이 무엇을 했는지 (방식, 얼굴 검출 비율, 키프레임 수)
+    reframe: dict[str, object] = field(default_factory=dict)
 
 
 def _ass_time(t: float) -> str:
@@ -107,6 +116,8 @@ def _video_filter(
     src_h: int,
     crop_mode: str,
     ass_path: Path | None,
+    sendcmd_file: Path | None = None,
+    crop_path: "reframe.CropPath | None" = None,
 ) -> str:
     parts: list[str] = []
 
@@ -114,6 +125,15 @@ def _video_filter(
         parts.append("scale=trunc(iw/2)*2:trunc(ih/2)*2")
     else:
         tw, th = target
+        if crop_mode == "auto" and sendcmd_file and crop_path:
+            # 피사체를 따라 crop 창을 움직인다. 시작 위치는 첫 키프레임.
+            x0, y0 = int(crop_path.keys[0][1]), int(crop_path.keys[0][2])
+            parts.append(f"sendcmd=f='{_escape_path(sendcmd_file)}'")
+            parts.append(f"crop={crop_path.crop_w}:{crop_path.crop_h}:{x0}:{y0}")
+            parts.append(f"scale={tw}:{th}")
+            if ass_path:
+                parts.append(f"ass='{_escape_path(ass_path)}'")
+            return ",".join(parts)
         if crop_mode == "blur":
             # 배경: 꽉 채워 블러, 전경: 비율 유지해 fit
             bg = (
@@ -153,7 +173,7 @@ def render_clip(
     hook: str = "",
     src_size: tuple[int, int] = (1920, 1080),
     workdir: Path | None = None,
-) -> Path:
+) -> RenderResult:
     """구간을 잘라 지정 비율의 쇼츠 파일로 렌더링."""
     target = config.ASPECT_RATIOS.get(aspect, config.ASPECT_RATIOS["9:16"])
     out_w, out_h = target if target else src_size
@@ -173,7 +193,39 @@ def render_clip(
             out_path=base / f"{out_path.stem}.ass",
         )
 
-    vf = _video_filter(target, src_size[0], src_size[1], crop_mode, ass_path)
+    crop_path = None
+    sendcmd_file = None
+    reframe_info: dict[str, object] = {}
+    if crop_mode == "auto" and target is not None:
+        try:
+            crop_path = reframe.compute_crop_path(
+                source, start, end, src_size[0], src_size[1], out_w, out_h
+            )
+        except Exception as exc:  # noqa: BLE001 — 추적 실패는 중앙 크롭으로 떨어진다
+            reframe_info["error"] = f"{type(exc).__name__}: {exc}"
+        if crop_path and crop_path.method != "static":
+            base = workdir or out_path.parent
+            sendcmd_file = reframe.write_sendcmd(
+                crop_path, base / f"{out_path.stem}.cmd"
+            )
+            reframe_info = {
+                "method": crop_path.method,
+                "face_ratio": crop_path.face_ratio,
+                "keyframes": len(crop_path.keys),
+            }
+        else:
+            # 피사체가 거의 안 움직이거나 추적 실패 → 중앙 크롭으로 떨어진다
+            reframe_info.setdefault(
+                "method", crop_path.method if crop_path else "no_subject"
+            )
+            reframe_info["fell_back_to"] = "center_crop"
+            crop_mode = "crop"
+            crop_path = None
+
+    vf = _video_filter(
+        target, src_size[0], src_size[1], crop_mode, ass_path,
+        sendcmd_file=sendcmd_file, crop_path=crop_path,
+    )
     uses_complex = crop_mode == "blur" and target is not None
 
     cmd = [
@@ -219,7 +271,7 @@ def render_clip(
     proc = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=1800)
     if proc.returncode != 0 or not out_path.exists():
         raise RenderError(f"렌더링 실패: {proc.stderr[-500:]}")
-    return out_path
+    return RenderResult(path=out_path, reframe=reframe_info)
 
 
 def make_thumbnail(clip_path: Path, out_path: Path, at: float = 1.0) -> Path | None:

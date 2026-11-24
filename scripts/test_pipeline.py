@@ -73,7 +73,7 @@ def main() -> int:
 
     install_local_source(video, subs)
 
-    opts = jobs.JobOptions(aspect="9:16", crop_mode="crop", clip_count=2,
+    opts = jobs.JobOptions(aspect="9:16", crop_mode="auto", clip_count=2,
                            min_seconds=15, max_seconds=45)
     job = jobs.store.create("https://youtube.com/watch?v=local", opts)
     print(f"작업 생성: {job.id}")
@@ -107,6 +107,8 @@ def main() -> int:
               f"{c['size_bytes'] / 1048576:.1f}MB  파일={'있음' if exists else '없음!'}")
         print(f"      제목: {c['title']}")
         print(f"      근거: {c['reason']}")
+        if c.get("reframe"):
+            print(f"      리프레임: {c['reframe']}")
 
     # 겹침 검사
     spans = sorted((c["start"], c["end"]) for c in job.clips)

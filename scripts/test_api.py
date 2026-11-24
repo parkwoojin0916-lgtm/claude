@@ -38,8 +38,13 @@ r = client.get("/api/jobs")
 check("GET /api/jobs", r.status_code == 200 and "jobs" in r.json())
 
 print("\n입력 검증")
-r = client.post("/api/jobs", json={"url": "https://example.com/video"})
-check("유튜브가 아닌 URL은 400", r.status_code == 400, str(r.status_code))
+r = client.post("/api/jobs", json={"url": "https://vimeo.com/123456"})
+check("유튜브 외 사이트도 받는다 (yt-dlp 지원 범위)", r.status_code == 202, str(r.status_code))
+if r.status_code == 202:
+    client.delete(f"/api/jobs/{r.json()['id']}")
+
+r = client.post("/api/jobs", json={"url": "그냥 글자"})
+check("URL 형태가 아니면 400", r.status_code == 400, str(r.status_code))
 
 r = client.post("/api/jobs", json={"url": ""})
 check("빈 URL은 400", r.status_code == 400, str(r.status_code))
@@ -69,6 +74,21 @@ opts = CreateJobRequest(url="https://youtu.be/x", min_seconds=60, max_seconds=20
 check("min/max가 뒤집혀 들어오면 교정", opts.min_seconds == 20 and opts.max_seconds == 60,
       f"{opts.min_seconds}/{opts.max_seconds}")
 
+print("\n프롬프트 기반 구간 지정")
+from app.pipeline.candidates import prompt_keywords, _text_bonus  # noqa: E402
+
+kws = prompt_keywords("요리하는 장면만 뽑아줘")
+check("프롬프트에서 키워드 추출", "요리하는" in kws or "요리" in str(kws), str(kws))
+check("기능어는 버린다", "부분" not in kws and "장면" not in kws, str(kws))
+
+base, _ = _text_bonus("오늘은 파스타를 만들어 봅니다", None)
+boosted, hits = _text_bonus("오늘은 파스타를 만들어 봅니다", ["파스타"])
+check("키워드가 맞으면 점수를 올린다", boosted > base, f"{base:.2f} -> {boosted:.2f}")
+check("매칭 수를 기록한다", hits.get("prompt_hits") == 1.0, str(hits))
+
+no_match, hits2 = _text_bonus("오늘은 파스타를 만들어 봅니다", ["등산"])
+check("안 맞으면 올리지 않는다", abs(no_match - base) < 1e-9, f"{no_match:.2f}")
+
 print("\nLLM 응답 파싱")
 cands = [Candidate(10.0, 40.0, 0.8, {"loudness": 0.9}, "재밌는 부분"),
          Candidate(100.0, 130.0, 0.6, {"loudness": 0.5}, "다른 부분")]
@@ -77,6 +97,7 @@ FAKE = '''```json
 {"clips": [
   {"candidate_id": 0, "start": 12.0, "end": 38.0, "title": "레전드 장면",
    "hook": "이거 실화?", "caption": "설명 한 줄", "hashtags": ["#쇼츠", "웃긴영상"],
+   "scores": {"hook": 92, "story": 85, "value": 90, "engagement": 80, "reach": 75},
    "score": 91, "reason": "반전이 명확함"}
 ]}
 ```'''
@@ -112,6 +133,9 @@ if clips:
     check("제목/후킹/캡션 반영", c.title == "레전드 장면" and c.hook == "이거 실화?")
     check("해시태그의 # 제거", c.hashtags == ["쇼츠", "웃긴영상"], str(c.hashtags))
     check("source=llm", c.source == "llm")
+    check("세부 점수 파싱", c.scores.get("hook") == 92 and c.scores.get("reach") == 75,
+          str(c.scores))
+    check("세부 점수가 응답에 실린다", c.to_dict()["scores"]["story"] == 85)
     check("후보의 신호 점수 연결", c.signals.get("loudness") == 0.9)
 
 print("\n길이 제약 / 겹침 제거")
@@ -153,6 +177,44 @@ segs = parse_vtt(tmp)
 tmp.unlink()
 check("자동 자막 중복 줄을 합친다", len(segs) == 2, f"{len(segs)}개: {[s.text for s in segs]}")
 check("HTML 태그 제거", all("<" not in s.text for s in segs))
+
+print("\n프롬프트가 LLM 요청에 들어가는지")
+captured = {}
+
+
+class CapturingMessages:
+    def create(self, **kwargs):
+        captured.update(kwargs)
+        return FakeResp()
+
+
+class CapturingClient:
+    def __init__(self, **kwargs):
+        self.messages = CapturingMessages()
+
+
+with patch("anthropic.Anthropic", CapturingClient), patch.object(config, "ANTHROPIC_API_KEY", "t"):
+    select.llm_select(cands, title="t", uploader="u", duration=200, want=3,
+                      min_len=20, max_len=60, prompt="투자 얘기하는 부분")
+sent = captured.get("messages", [{}])[0].get("content", "")
+check("프롬프트가 요청에 포함된다", "투자 얘기하는 부분" in sent)
+
+with patch("anthropic.Anthropic", CapturingClient), patch.object(config, "ANTHROPIC_API_KEY", "t"):
+    select.llm_select(cands, title="t", uploader="u", duration=200, want=3,
+                      min_len=20, max_len=60)
+sent2 = captured.get("messages", [{}])[0].get("content", "")
+check("프롬프트가 없으면 해당 블록이 빠진다", "사용자가 원하는 구간" not in sent2)
+
+print("\n자동 리프레임")
+from app.pipeline import reframe  # noqa: E402
+
+check("YuNet 모델 파일이 있다", reframe.MODEL_PATH.is_file(), str(reframe.MODEL_PATH))
+check("crop_mode에 auto가 있다", "auto" in config.CROP_MODES, str(config.CROP_MODES))
+
+r = client.post("/api/jobs", json={"url": "https://youtu.be/x", "crop_mode": "auto"})
+check("auto 모드를 API가 받는다", r.status_code == 202, str(r.status_code))
+if r.status_code == 202:
+    client.delete(f"/api/jobs/{r.json()['id']}")
 
 print(f"\n{'전부 통과' if not failures else f'실패 {len(failures)}건: ' + ', '.join(failures)}")
 raise SystemExit(1 if failures else 0)

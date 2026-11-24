@@ -40,6 +40,8 @@ class JobOptions:
     burn_subs: bool = True
     show_hook: bool = True
     keep_source: bool = False
+    # "요리하는 장면만" 처럼 원하는 구간을 글로 지정 (비우면 전체에서 고른다)
+    prompt: str = ""
 
 
 @dataclass
@@ -219,6 +221,7 @@ class JobStore:
             segments,
             target_seconds=target_len,
             max_candidates=max(8, opts.clip_count * 4),
+            prompt=opts.prompt,
         )
         job.diagnostics["candidate_count"] = len(cands)
         if not cands:
@@ -237,6 +240,7 @@ class JobStore:
                     want=opts.clip_count,
                     min_len=opts.min_seconds,
                     max_len=opts.max_seconds,
+                    prompt=opts.prompt,
                 )
                 job.diagnostics["selection"] = "llm"
             except Exception as exc:  # noqa: BLE001
@@ -267,7 +271,7 @@ class JobStore:
             )
             out_name = f"clip_{i:02d}.mp4"
             out_path = clips_dir / out_name
-            render.render_clip(
+            rendered = render.render_clip(
                 source,
                 out_path,
                 clip.start,
@@ -282,6 +286,8 @@ class JobStore:
             )
             thumb = render.make_thumbnail(out_path, clips_dir / f"clip_{i:02d}.jpg")
             info = clip.to_dict()
+            if rendered.reframe:
+                info["reframe"] = rendered.reframe
             info.update(
                 {
                     "index": i,

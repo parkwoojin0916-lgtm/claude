@@ -26,6 +26,7 @@ class CreateJobRequest(BaseModel):
     burn_subs: bool = True
     show_hook: bool = True
     keep_source: bool = False
+    prompt: str = Field(default="", max_length=300)
 
     @field_validator("aspect")
     @classmethod
@@ -56,6 +57,7 @@ class CreateJobRequest(BaseModel):
             burn_subs=self.burn_subs,
             show_hook=self.show_hook,
             keep_source=self.keep_source,
+            prompt=self.prompt.strip(),
         )
 
 

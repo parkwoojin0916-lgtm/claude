@@ -72,12 +72,32 @@ def _window_scores(
     return loud, burst, cuts, speech
 
 
-def _text_bonus(text: str) -> tuple[float, dict[str, float]]:
+def _text_bonus(text: str, keywords: list[str] | None = None) -> tuple[float, dict[str, float]]:
     low = text.lower()
     laugh = sum(1 for k in LAUGH_HINTS if k in low or k in text)
     question = sum(1 for k in QUESTION_HINTS if k in low or k in text)
     bonus = min(1.0, laugh * 0.25) * 0.8 + min(1.0, question * 0.15) * 0.3
-    return bonus, {"laugh_hits": float(laugh), "question_hits": float(question)}
+
+    hits = {"laugh_hits": float(laugh), "question_hits": float(question)}
+    if keywords:
+        # 사용자가 찾는 주제가 언급된 구간을 크게 끌어올린다
+        matched = sum(1 for k in keywords if k in low)
+        if matched:
+            bonus += min(1.0, matched / len(keywords)) * 1.2
+        hits["prompt_hits"] = float(matched)
+    return bonus, hits
+
+
+def prompt_keywords(prompt: str) -> list[str]:
+    """프롬프트에서 검색할 키워드를 뽑는다. 조사·기능어는 버린다."""
+    import re
+
+    stop = {
+        "부분", "구간", "장면", "나오는", "말하는", "얘기", "이야기", "하는", "에서",
+        "about", "the", "part", "where", "when", "talks", "talking", "scene", "that",
+    }
+    words = re.findall(r"[0-9A-Za-z가-힣]+", (prompt or "").lower())
+    return [w for w in words if len(w) >= 2 and w not in stop][:8]
 
 
 def _snap_to_speech(
@@ -102,9 +122,11 @@ def find_candidates(
     target_seconds: float = 32.0,
     max_candidates: int = 14,
     step: float = 2.0,
+    prompt: str = "",
 ) -> list[Candidate]:
     """슬라이딩 윈도우로 점수를 매겨 서로 겹치지 않는 후보를 돌려준다."""
     duration = signals.duration
+    keywords = prompt_keywords(prompt)
     if duration <= target_seconds * 1.2:
         start, end = _snap_to_speech(0.0, min(duration, target_seconds), segments, duration)
         text = " ".join(s.text for s in slice_segments(segments, start, end))
@@ -130,7 +152,7 @@ def find_candidates(
 
         start_t, end_t = i * w, (i + win) * w
         text = " ".join(s.text for s in slice_segments(segments, start_t, end_t))
-        bonus, hits = _text_bonus(text)
+        bonus, hits = _text_bonus(text, keywords)
 
         base = (
             s_loud * 0.22

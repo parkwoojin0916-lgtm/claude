@@ -1,6 +1,7 @@
 # 쇼츠 커터
 
-유튜브 영상 링크를 넣으면 재밌는 구간을 찾아 쇼츠용 세로 클립으로 잘라주는 웹 서비스.
+영상 링크를 넣으면 재밌는 구간을 찾아 쇼츠용 세로 클립으로 잘라주는 웹 서비스.
+유튜브·트위치·Vimeo 등 yt-dlp가 지원하는 사이트를 받는다.
 
 ![파이프라인](https://img.shields.io/badge/stack-FastAPI%20%2B%20ffmpeg%20%2B%20Whisper%20%2B%20Claude-ff4d6d)
 
@@ -31,8 +32,30 @@
 - 업로드용 캡션과 해시태그
 - 그 구간을 고른 이유
 
+각 클립은 다섯 항목으로 나눈 점수를 받는다 — 후킹, 완결성, 재미/가치,
+반응, 도달. 총점 하나보다 어디가 약한지 보인다.
+
 API 키가 없으면 1단계 점수만으로 상위 구간을 뽑는다. 동작은 하지만
 "왜 재밌는지"는 모르기 때문에 품질 차이가 난다.
+
+**원하는 구간 지정**
+"요리하는 장면만", "게스트가 실수하는 부분" 처럼 글로 지정하면 그 주제가
+언급된 구간을 1단계에서 가산하고, Claude에게도 같은 요청을 전달한다.
+비워두면 전체에서 알아서 고른다.
+
+## 화자 추적 리프레임
+
+가로 영상을 세로로 자를 때 중앙만 쓰면 화면 끝에 있는 화자가 잘린다.
+`auto` 모드는 0.25초마다 프레임을 샘플링해 피사체를 찾고, 크롭 창을
+시간에 따라 움직인다 (ffmpeg `sendcmd`).
+
+- **얼굴 검출**(YuNet ONNX) — 말하는 사람이 있는 영상에서 가장 정확
+- **움직임·엣지 돌출도** — 얼굴이 없는 영상(게임, 풍경, 그래픽)용 폴백
+- 미세 떨림은 데드존으로 무시하고, 패닝 속도를 제한해 멀미를 막는다
+- 피사체가 거의 안 움직이면 중앙 고정으로 떨어진다 (불필요한 연산 생략)
+
+합성 테스트 기준 추적 오차는 크롭 폭의 약 7%다. 같은 구간을 중앙 고정으로
+자르면 피사체가 프레임 밖으로 나가는 구간이 생긴다.
 
 ## 전사
 
@@ -45,6 +68,10 @@ API 키가 없으면 1단계 점수만으로 상위 구간을 뽑는다. 동작�
 # 시스템 의존성
 sudo apt-get install -y ffmpeg fonts-nanum   # 자막 번인에 한글 폰트가 필요
 pip install -r requirements.txt
+
+# 화자 추적용 얼굴 검출 모델 (232KB). 없으면 움직임 추적으로만 동작한다.
+mkdir -p models && curl -L -o models/yunet.onnx \
+  https://media.githubusercontent.com/media/opencv/opencv_zoo/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx
 
 # 설정
 cp .env.example .env
@@ -76,9 +103,10 @@ YTDLP_COOKIES_FROM_BROWSER=chrome
 | 옵션 | 값 |
 |---|---|
 | 비율 | `9:16` 쇼츠 · `4:5` 피드 · `1:1` 정사각 · `16:9` 가로 · `original` 원본 |
-| 여백 처리 | `crop` 꽉 채워 자르기 · `blur` 블러 배경 위에 얹기 |
+| 여백 처리 | `auto` 화자 추적 · `crop` 중앙 고정 · `blur` 블러 배경 |
 | 클립 개수 | 1~8 |
-| 클립 길이 | 5~180초 범위에서 최소/최대 지정 |
+| 클립 길이 | 짧게 15~30초 · 보통 20~60초 · 길게 45~90초 (API로는 초 단위 지정) |
+| 원하는 구간 | 글로 지정 (`prompt`). 비우면 전체에서 선별 |
 | 자막 번인 | 켜기/끄기 |
 | 후킹 문구 | 첫 3.5초에 노란 자막으로 얹기 |
 
@@ -95,7 +123,8 @@ curl -X POST localhost:8000/api/preview \
 # 작업 시작
 curl -X POST localhost:8000/api/jobs \
   -H 'Content-Type: application/json' \
-  -d '{"url": "https://youtu.be/VIDEO_ID", "aspect": "9:16", "clip_count": 3}'
+  -d '{"url": "https://youtu.be/VIDEO_ID", "aspect": "9:16",
+       "crop_mode": "auto", "clip_count": 3, "prompt": "요리하는 장면만"}'
 
 # 진행 상황
 curl localhost:8000/api/jobs/JOB_ID
@@ -126,10 +155,13 @@ app/
     download.py        yt-dlp 다운로드 / 메타데이터 / 오디오 추출
     transcribe.py      VTT 파싱, faster-whisper 전사
     signals.py         음량 시계열, 장면 전환 감지
+    reframe.py         얼굴·움직임 추적 크롭 경로 계산
     candidates.py      슬라이딩 윈도우 점수 → 1차 후보
     select.py          Claude 최종 선별, 신호 기반 폴백
     render.py          ffmpeg 컷 / 비율 변환 / ASS 자막 번인
   static/index.html    프론트엔드 (단일 파일)
+models/
+  yunet.onnx           YuNet 얼굴 검출 모델 (별도 내려받기)
 scripts/
   test_pipeline.py     로컬 영상으로 전체 파이프라인 검증
   test_api.py          API·파싱 단위 테스트
@@ -153,6 +185,7 @@ python3 scripts/test_pipeline.py video.mp4 [subs.vtt]   # 전체 파이프라인
 | 전사 (Whisper base) | 2~4분 |
 | 신호 분석 | 30~60초 |
 | Claude 선별 | 10~20초 |
+| 화자 추적 분석 | 클립당 5~15초 |
 | 렌더링 | 클립당 10~30초 |
 
 `MAX_WORKERS`로 동시 작업 수를, `MAX_VIDEO_SECONDS`로 허용 길이를 제한한다.

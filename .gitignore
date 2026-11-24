@@ -7,3 +7,4 @@ data/
 *.webm
 *.part
 .venv/
+models/*.onnx
