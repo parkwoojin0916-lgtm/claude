@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>쇼츠 커터</title>
+<style>
+  :root {
+    --bg: #0d0f14;
+    --panel: #161a23;
+    --panel-2: #1e2430;
+    --line: #2a3140;
+    --text: #e8ecf3;
+    --muted: #8d97a8;
+    --accent: #ff4d6d;
+    --accent-2: #ffd166;
+    --ok: #4ade80;
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: "NanumSquare", -apple-system, BlinkMacSystemFont, "Segoe UI",
+      "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+    line-height: 1.55;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 40px 20px 80px; }
+  header h1 { font-size: 30px; margin: 0 0 6px; letter-spacing: -0.5px; }
+  header p { color: var(--muted); margin: 0 0 28px; font-size: 14px; }
+  .badge {
+    display: inline-block; font-size: 11px; padding: 3px 8px; border-radius: 999px;
+    background: var(--panel-2); color: var(--muted); border: 1px solid var(--line);
+    margin-left: 8px; vertical-align: middle;
+  }
+  .badge.on { color: var(--ok); border-color: #2d5540; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 22px; margin-bottom: 20px;
+  }
+  .row { display: flex; gap: 10px; }
+  input[type=url], input[type=number], select {
+    background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
+    border-radius: 10px; padding: 12px 14px; font-size: 15px; font-family: inherit;
+    width: 100%; outline: none;
+  }
+  input:focus, select:focus { border-color: var(--accent); }
+  button {
+    background: var(--accent); color: #fff; border: 0; border-radius: 10px;
+    padding: 12px 22px; font-size: 15px; font-weight: 700; cursor: pointer;
+    font-family: inherit; white-space: nowrap;
+  }
+  button:hover:not(:disabled) { filter: brightness(1.1); }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  button.ghost { background: transparent; border: 1px solid var(--line); color: var(--muted); font-weight: 500; }
+  .opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 18px; margin-top: 20px; }
+  .opt label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 7px; font-weight: 700; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip {
+    padding: 8px 13px; border-radius: 9px; border: 1px solid var(--line);
+    background: var(--panel-2); font-size: 13px; cursor: pointer; user-select: none;
+  }
+  .chip[aria-pressed=true] { border-color: var(--accent); background: rgba(255,77,109,0.14); color: #fff; font-weight: 700; }
+  .toggles { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 18px; font-size: 14px; }
+  .toggles label { display: flex; align-items: center; gap: 7px; cursor: pointer; color: var(--muted); }
+  .toggles input { accent-color: var(--accent); width: 16px; height: 16px; }
+  .preview { display: flex; gap: 14px; align-items: flex-start; }
+  .preview img { width: 160px; border-radius: 10px; flex-shrink: 0; }
+  .preview h3 { margin: 0 0 4px; font-size: 16px; }
+  .preview .meta { color: var(--muted); font-size: 13px; }
+  .bar { height: 7px; background: var(--panel-2); border-radius: 999px; overflow: hidden; margin: 14px 0 8px; }
+  .bar > i { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); width: 0; transition: width 0.4s ease; }
+  .stage { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); }
+  .clips { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 18px; }
+  .clip { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+  .clip video { width: 100%; display: block; background: #000; max-height: 420px; }
+  .clip .body { padding: 14px; }
+  .clip h4 { margin: 0 0 6px; font-size: 15px; }
+  .clip .sub { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+  .clip .reason { font-size: 12px; color: var(--muted); border-left: 2px solid var(--line); padding-left: 8px; margin: 8px 0; }
+  .tags { display: flex; gap: 5px; flex-wrap: wrap; margin: 8px 0; }
+  .tag { font-size: 11px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; color: var(--muted); }
+  .clip .acts { display: flex; gap: 8px; margin-top: 10px; }
+  .clip .acts a { flex: 1; text-align: center; text-decoration: none; font-size: 13px; padding: 9px; border-radius: 9px; border: 1px solid var(--line); color: var(--text); }
+  .clip .acts a.primary { background: var(--accent); border-color: var(--accent); font-weight: 700; }
+  .score { float: right; font-size: 12px; color: var(--accent-2); font-weight: 700; }
+  .err { background: rgba(255,77,109,0.1); border: 1px solid rgba(255,77,109,0.4); color: #ffb3c0; padding: 12px 14px; border-radius: 10px; font-size: 14px; }
+  .note { font-size: 12px; color: var(--muted); margin-top: 16px; }
+  details summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+  pre { background: var(--panel-2); padding: 12px; border-radius: 9px; font-size: 11px; overflow-x: auto; color: var(--muted); }
+  .hidden { display: none !important; }
+  @media (max-width: 560px) {
+    .row { flex-direction: column; }
+    .preview img { width: 100%; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>쇼츠 커터 <span class="badge" id="llmBadge">…</span></h1>
+    <p>유튜브 영상 링크를 넣으면 재밌는 구간을 찾아 쇼츠용 클립으로 잘라줍니다.</p>
+  </header>
+
+  <div class="card">
+    <div class="row">
+      <input type="url" id="url" placeholder="https://www.youtube.com/watch?v=..." autocomplete="off" />
+      <button id="checkBtn" class="ghost">영상 확인</button>
+      <button id="startBtn">클립 만들기</button>
+    </div>
+
+    <div id="previewBox" class="hidden" style="margin-top:18px">
+      <div class="preview">
+        <img id="pvThumb" alt="" />
+        <div>
+          <h3 id="pvTitle"></h3>
+          <div class="meta" id="pvMeta"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="opts">
+      <div class="opt">
+        <label>출력 비율</label>
+        <div class="chips" id="aspectChips"></div>
+      </div>
+      <div class="opt">
+        <label>여백 처리</label>
+        <div class="chips" id="cropChips">
+          <div class="chip" data-v="crop" aria-pressed="true">꽉 채워 자르기</div>
+          <div class="chip" data-v="blur" aria-pressed="false">블러 배경</div>
+        </div>
+      </div>
+      <div class="opt">
+        <label>클립 개수</label>
+        <input type="number" id="clipCount" value="3" min="1" max="8" />
+      </div>
+      <div class="opt">
+        <label>클립 길이 (초)</label>
+        <div class="row" style="gap:8px">
+          <input type="number" id="minSec" value="20" min="5" max="120" />
+          <input type="number" id="maxSec" value="60" min="10" max="180" />
+        </div>
+      </div>
+    </div>
+
+    <div class="toggles">
+      <label><input type="checkbox" id="burnSubs" checked /> 자막 번인</label>
+      <label><input type="checkbox" id="showHook" checked /> 후킹 문구 얹기</label>
+    </div>
+
+    <div class="note">
+      다른 사람의 영상을 잘라 재업로드하면 저작권 문제가 생길 수 있습니다.
+      본인 영상이나 허가받은 영상에 쓰세요.
+    </div>
+  </div>
+
+  <div id="errBox" class="hidden"><div class="err" id="errText"></div></div>
+
+  <div id="progressCard" class="card hidden">
+    <div class="stage">
+      <strong id="prStage">대기 중</strong>
+      <span id="prPct">0%</span>
+    </div>
+    <div class="bar"><i id="prBar"></i></div>
+    <div class="stage">
+      <span id="prMsg"></span>
+      <button class="ghost" id="cancelBtn" style="padding:4px 12px;font-size:12px">취소</button>
+    </div>
+  </div>
+
+  <div id="resultCard" class="hidden">
+    <h2 style="font-size:19px;margin:28px 0 14px">완성된 쇼츠 <span id="clipCountLabel" class="badge"></span></h2>
+    <div class="clips" id="clips"></div>
+    <details style="margin-top:20px">
+      <summary>처리 정보</summary>
+      <pre id="diag"></pre>
+    </details>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let currentJob = null;
+let poller = null;
+
+const ASPECT_LABELS = {
+  "9:16": "9:16 쇼츠",
+  "4:5": "4:5 피드",
+  "1:1": "1:1 정사각",
+  "16:9": "16:9 가로",
+  "original": "원본 그대로",
+};
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, {
+    headers: { "Content-Type": "application/json" },
+    ...opts,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || `요청 실패 (${res.status})`);
+  return data;
+}
+
+function showError(msg) {
+  $("errText").textContent = msg;
+  $("errBox").classList.remove("hidden");
+}
+function clearError() { $("errBox").classList.add("hidden"); }
+
+function fmtDuration(sec) {
+  sec = Math.round(sec);
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+  return h ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
+           : `${m}:${String(s).padStart(2, "0")}`;
+}
+function fmtSize(bytes) { return (bytes / 1048576).toFixed(1) + " MB"; }
+
+function setupChips(container, onPick) {
+  container.addEventListener("click", (e) => {
+    const chip = e.target.closest(".chip");
+    if (!chip) return;
+    [...container.querySelectorAll(".chip")].forEach((c) =>
+      c.setAttribute("aria-pressed", String(c === chip)));
+    if (onPick) onPick(chip.dataset.v);
+  });
+}
+function chipValue(container) {
+  const active = container.querySelector('.chip[aria-pressed="true"]');
+  return active ? active.dataset.v : null;
+}
+
+function buildOptions() {
+  return {
+    url: $("url").value.trim(),
+    aspect: chipValue($("aspectChips")) || "9:16",
+    crop_mode: chipValue($("cropChips")) || "crop",
+    clip_count: Number($("clipCount").value) || 3,
+    min_seconds: Number($("minSec").value) || 20,
+    max_seconds: Number($("maxSec").value) || 60,
+    burn_subs: $("burnSubs").checked,
+    show_hook: $("showHook").checked,
+  };
+}
+
+async function checkVideo() {
+  clearError();
+  const body = buildOptions();
+  if (!body.url) return showError("유튜브 링크를 넣어주세요.");
+  $("checkBtn").disabled = true;
+  $("checkBtn").textContent = "확인 중…";
+  try {
+    const info = await api("/api/preview", { method: "POST", body: JSON.stringify(body) });
+    $("pvThumb").src = info.thumbnail || "";
+    $("pvTitle").textContent = info.title;
+    const bits = [info.uploader, fmtDuration(info.duration)];
+    bits.push(info.has_subtitles ? `자막 있음 (${info.subtitle_langs.slice(0,3).join(", ")})`
+                                 : "자막 없음 → Whisper 전사");
+    if (info.too_long) bits.push("⚠ 길이 초과");
+    $("pvMeta").textContent = bits.filter(Boolean).join(" · ");
+    $("previewBox").classList.remove("hidden");
+  } catch (e) {
+    showError(e.message);
+  } finally {
+    $("checkBtn").disabled = false;
+    $("checkBtn").textContent = "영상 확인";
+  }
+}
+
+async function startJob() {
+  clearError();
+  const body = buildOptions();
+  if (!body.url) return showError("유튜브 링크를 넣어주세요.");
+  $("startBtn").disabled = true;
+  $("resultCard").classList.add("hidden");
+  $("clips").innerHTML = "";
+  try {
+    const job = await api("/api/jobs", { method: "POST", body: JSON.stringify(body) });
+    currentJob = job.id;
+    $("progressCard").classList.remove("hidden");
+    renderProgress(job);
+    poller = setInterval(pollJob, 1500);
+  } catch (e) {
+    showError(e.message);
+    $("startBtn").disabled = false;
+  }
+}
+
+async function pollJob() {
+  if (!currentJob) return;
+  try {
+    const job = await api(`/api/jobs/${currentJob}`);
+    renderProgress(job);
+    if (job.clips.length) renderClips(job);
+    if (["done", "failed", "canceled"].includes(job.stage)) {
+      clearInterval(poller);
+      poller = null;
+      $("startBtn").disabled = false;
+      if (job.stage === "failed") showError(job.error || "처리에 실패했습니다.");
+      if (job.stage === "done") renderClips(job);
+    }
+  } catch (e) {
+    clearInterval(poller);
+    poller = null;
+    $("startBtn").disabled = false;
+    showError(e.message);
+  }
+}
+
+function renderProgress(job) {
+  $("prStage").textContent = job.stage_label;
+  $("prPct").textContent = Math.round(job.progress * 100) + "%";
+  $("prBar").style.width = (job.progress * 100) + "%";
+  $("prMsg").textContent = job.message || "";
+  $("cancelBtn").classList.toggle("hidden",
+    ["done", "failed", "canceled"].includes(job.stage));
+}
+
+function renderClips(job) {
+  const box = $("clips");
+  box.innerHTML = "";
+  for (const clip of job.clips) {
+    const el = document.createElement("div");
+    el.className = "clip";
+    const tags = (clip.hashtags || []).map((t) => `<span class="tag">#${escapeHtml(t)}</span>`).join("");
+    el.innerHTML = `
+      <video src="${clip.download_url}" controls preload="metadata"
+             ${clip.thumbnail_url ? `poster="${clip.thumbnail_url}"` : ""}></video>
+      <div class="body">
+        ${clip.score ? `<span class="score">${clip.score}점</span>` : ""}
+        <h4>${escapeHtml(clip.title || "하이라이트 " + clip.index)}</h4>
+        <div class="sub">원본 ${fmtDuration(clip.start)} ~ ${fmtDuration(clip.end)}
+          · ${clip.duration}초 · ${fmtSize(clip.size_bytes)}</div>
+        ${clip.hook ? `<div class="sub">후킹: <strong>${escapeHtml(clip.hook)}</strong></div>` : ""}
+        ${clip.reason ? `<div class="reason">${escapeHtml(clip.reason)}</div>` : ""}
+        ${clip.caption ? `<div class="sub">${escapeHtml(clip.caption)}</div>` : ""}
+        ${tags ? `<div class="tags">${tags}</div>` : ""}
+        <div class="acts">
+          <a class="primary" href="${clip.download_url}" download>다운로드</a>
+          <a href="${clip.youtube_url}" target="_blank" rel="noopener">원본 구간</a>
+        </div>
+      </div>`;
+    box.appendChild(el);
+  }
+  $("clipCountLabel").textContent = `${job.clips.length}개`;
+  $("diag").textContent = JSON.stringify(job.diagnostics, null, 2);
+  $("resultCard").classList.remove("hidden");
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+async function init() {
+  setupChips($("cropChips"));
+  try {
+    const cfg = await api("/api/config");
+    const chips = $("aspectChips");
+    chips.innerHTML = cfg.aspect_ratios.map((r, i) =>
+      `<div class="chip" data-v="${r}" aria-pressed="${r === "9:16"}">${ASPECT_LABELS[r] || r}</div>`
+    ).join("");
+    setupChips(chips);
+    const badge = $("llmBadge");
+    if (cfg.llm_enabled) {
+      badge.textContent = "하이브리드 (신호 + Claude)";
+      badge.classList.add("on");
+    } else {
+      badge.textContent = "신호 기반 (API 키 없음)";
+    }
+  } catch (e) {
+    showError("설정을 불러오지 못했습니다: " + e.message);
+  }
+}
+
+$("checkBtn").onclick = checkVideo;
+$("startBtn").onclick = startJob;
+$("cancelBtn").onclick = async () => {
+  if (currentJob) { try { await api(`/api/jobs/${currentJob}/cancel`, { method: "POST" }); } catch (e) {} }
+};
+$("url").addEventListener("keydown", (e) => { if (e.key === "Enter") startJob(); });
+init();
+</script>
+</body>
+</html>
