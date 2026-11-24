@@ -190,6 +190,57 @@ python3 scripts/test_pipeline.py video.mp4 [subs.vtt]   # 전체 파이프라인
 
 `MAX_WORKERS`로 동시 작업 수를, `MAX_VIDEO_SECONDS`로 허용 길이를 제한한다.
 
+## 배포
+
+### Cloudflare Containers
+
+`Dockerfile`, `wrangler.jsonc`, `worker/index.js`가 준비돼 있다.
+Worker가 모든 요청을 컨테이너 안의 FastAPI로 넘기는 구조다.
+
+**Workers Paid 플랜($5/월)이 필요하다.** 무료 플랜에서는 Containers API가
+막혀 있다. 이미지 빌드에는 Docker가 돌고 있어야 한다.
+
+```bash
+npm install
+npx wrangler login
+npx wrangler deploy
+```
+
+배포되면 `https://shorts-cutter.<서브도메인>.workers.dev` 로 열린다.
+
+API 키와 쿠키는 커밋하지 말고 시크릿으로 넣는다.
+
+```bash
+npx wrangler secret put ANTHROPIC_API_KEY
+npx wrangler secret put YTDLP_COOKIES_FILE   # 컨테이너 안 경로
+```
+
+인스턴스 타입은 `standard-2`(1 vCPU / 6GiB / 12GB)로 잡아뒀다. Whisper 전사와
+ffmpeg 렌더링을 같이 돌리기 때문에 그 아래로 내리면 느려진다. 유휴 20분 뒤
+잠들어 과금이 멈춘다.
+
+**Docker 없이 배포하려면** 저장소를 [Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/)에
+연결한다. Cloudflare가 서버에서 이미지를 빌드한다.
+
+### 일반 Docker 호스트 (Railway, Fly.io, Render 등)
+
+같은 `Dockerfile`을 그대로 쓴다. 컨테이너 레지스트리가 아니라 Dockerfile을
+직접 받는 호스트면 저장소만 연결하면 된다.
+
+```bash
+docker build -t shorts-cutter .
+docker run -p 8000:8000 \
+  -e ANTHROPIC_API_KEY=sk-ant-... \
+  -v "$PWD/data:/data" \
+  shorts-cutter
+```
+
+### 배포해도 유튜브는 막힐 수 있다
+
+클라우드 IP는 유튜브가 봇으로 차단한다. 어디에 올리든 쿠키 없이는
+다운로드가 실패한다. 서버에 개인 유튜브 쿠키를 두는 것은 계정 정지
+위험이 있으니, 상업 서비스라면 공식 API나 권리 처리된 소스를 쓰는 편이 낫다.
+
 ## 저작권
 
 다른 사람의 영상을 잘라 재업로드하는 것은 대부분의 경우 저작권 침해다.

@@ -8,3 +8,6 @@ data/
 *.part
 .venv/
 models/*.onnx
+node_modules/
+.wrangler/
+package-lock.json

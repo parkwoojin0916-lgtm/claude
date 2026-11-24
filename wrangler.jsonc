@@ -1,0 +1,25 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "shorts-cutter",
+  "main": "worker/index.js",
+  "compatibility_date": "2026-11-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  "containers": [
+    {
+      "class_name": "ShortsCutter",
+      "image": "./Dockerfile",
+      // 1 vCPU / 6GiB / 12GB 디스크. Whisper 전사와 ffmpeg 렌더링에 필요하다.
+      "instance_type": "standard-2",
+      "max_instances": 2
+    }
+  ],
+
+  "durable_objects": {
+    "bindings": [{ "name": "SHORTS_CUTTER", "class_name": "ShortsCutter" }]
+  },
+
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ShortsCutter"] }],
+
+  "observability": { "enabled": true }
+}
